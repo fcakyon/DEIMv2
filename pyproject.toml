@@ -1,0 +1,29 @@
+[project]
+name = "deimv2-ul37"
+version = "0.0.1"
+requires-python = "==3.11.*"
+dependencies = [
+    "torch==2.11.0",
+    "torchvision==0.26.0",
+    "faster-coco-eval==1.8.0",
+    "pyyaml==6.0.3",
+    "tensorboard==2.21.0",
+    "scipy==1.17.1",
+    "calflops==0.3.2",
+    "transformers==5.19.0",
+    "safetensors==0.8.0",
+    "matplotlib==3.11.2",
+]
+
+[tool.uv]
+package = false
+environments = ["sys_platform == 'linux'"]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }
