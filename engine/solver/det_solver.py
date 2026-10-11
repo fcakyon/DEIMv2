@@ -6,6 +6,8 @@ Modified from D-FINE (https://github.com/Peterande/D-FINE)
 Copyright (c) 2024 D-FINE authors. All Rights Reserved.
 """
 
+import math
+import os
 import time
 import json
 import datetime
@@ -35,7 +37,7 @@ class DetSolver(BaseSolver):
 
         self.self_lr_scheduler = False
         if args.lrsheduler is not None:
-            iter_per_epoch = len(self.train_dataloader)
+            iter_per_epoch = math.ceil(len(self.train_dataloader) / int(os.environ.get("GRAD_ACCUM_STEPS", 1)))
             print("     ## Using Self-defined Scheduler-{} ## ".format(args.lrsheduler))
             self.lr_scheduler = FlatCosineLRScheduler(self.optimizer, args.lr_gamma, iter_per_epoch, total_epochs=args.epoches, 
                                                 warmup_iter=args.warmup_iter, flat_epochs=args.flat_epoch, no_aug_epochs=args.no_aug_epoch)

@@ -9,6 +9,7 @@ Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
 import sys
 import math
+import os
 from typing import Iterable
 
 import torch
@@ -37,12 +38,14 @@ def train_one_epoch(self_lr_scheduler, lr_scheduler, model: torch.nn.Module, cri
     scaler :GradScaler = kwargs.get('scaler', None)
     lr_warmup_scheduler :Warmup = kwargs.get('lr_warmup_scheduler', None)
 
-    cur_iters = epoch * len(data_loader)
+    accum = int(os.environ.get('GRAD_ACCUM_STEPS', 1))  # micro-batches per optimizer step
+    cur_iters = epoch * math.ceil(len(data_loader) / accum)
 
     for i, (samples, targets) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
         samples = samples.to(device)
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
         global_step = epoch * len(data_loader) + i
+        step = (i + 1) % accum == 0 or i + 1 == len(data_loader)
         metas = dict(epoch=epoch, step=i, global_step=global_step, epoch_step=len(data_loader))
 
         if scaler is not None:
@@ -65,36 +68,38 @@ def train_one_epoch(self_lr_scheduler, lr_scheduler, model: torch.nn.Module, cri
                 loss_dict = criterion(outputs, targets, **metas)
 
             loss = sum(loss_dict.values())
-            scaler.scale(loss).backward()
+            scaler.scale(loss / accum).backward()
 
-            if max_norm > 0:
-                scaler.unscale_(optimizer)
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
+            if step:
+                if max_norm > 0:
+                    scaler.unscale_(optimizer)
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
 
-            scaler.step(optimizer)
-            scaler.update()
-            optimizer.zero_grad()
+                scaler.step(optimizer)
+                scaler.update()
+                optimizer.zero_grad()
 
         else:
             outputs = model(samples, targets=targets)
             loss_dict = criterion(outputs, targets, **metas)
 
             loss : torch.Tensor = sum(loss_dict.values())
-            optimizer.zero_grad()
-            loss.backward()
+            (loss / accum).backward()
 
-            if max_norm > 0:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
+            if step:
+                if max_norm > 0:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
 
-            optimizer.step()
+                optimizer.step()
+                optimizer.zero_grad()
 
         # ema
-        if ema is not None:
+        if step and ema is not None:
             ema.update(model)
 
-        if self_lr_scheduler:
-            optimizer = lr_scheduler.step(cur_iters + i, optimizer)
-        else:
+        if step and self_lr_scheduler:
+            optimizer = lr_scheduler.step(cur_iters + i // accum, optimizer)
+        elif step:
             if lr_warmup_scheduler is not None:
                 lr_warmup_scheduler.step()
 
